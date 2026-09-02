@@ -1,0 +1,9 @@
+{
+  "name": "@alalqami/agent-core",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {"check": "tsc -p tsconfig.json --noEmit"},
+  "dependencies": {"@alalqami/protocol": "0.1.1"}
+}

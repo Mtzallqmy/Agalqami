@@ -1,0 +1,17 @@
+{
+  "name": "@alalqami/api",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@alalqami/agent-core": "0.1.1",
+    "@alalqami/protocol": "0.1.1",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {"@types/ws": "^8.18.1"}
+}

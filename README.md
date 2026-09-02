@@ -2,7 +2,7 @@
 
 **Repository:** `Mtzallqmy/Agalqami`  
 **Android application ID:** `com.alalqami.agent`  
-**Version:** `0.1.0`
+**Version:** `0.1.1`
 
 نسخة أولية لمنصة وكلاء ذكاء اصطناعي تعمل من Android، مستوحاة معماريًا من فكرة AI employee + remote computer، لكن بكود مستقل.
 
@@ -13,6 +13,8 @@
 - Agent Runtime مستقل.
 - Mock Provider للاختبار بدون أي مفتاح API.
 - xAI Responses API مع Grok عبر `XAI_API_KEY`.
+- OpenRouter عبر OpenAI-compatible Chat Completions.
+- مزود عام `OpenAI-compatible` لأي endpoint متوافق مع `/chat/completions`.
 - بث أحداث النص عبر WebSocket.
 - Android Native skeleton بـ Kotlin + Jetpack Compose.
 
@@ -34,6 +36,27 @@ export XAI_API_KEY=YOUR_KEY
 export XAI_MODEL=grok-4.6
 npm run dev:api
 ```
+
+لتفعيل OpenRouter:
+
+```bash
+export AI_PROVIDER=openrouter
+export OPENROUTER_API_KEY=YOUR_KEY
+export OPENROUTER_MODEL=openai/gpt-5.4
+npm run dev:api
+```
+
+لتفعيل أي OpenAI-compatible endpoint:
+
+```bash
+export AI_PROVIDER=openai-compatible
+export OPENAI_COMPAT_BASE_URL=https://api.openai.com/v1
+export OPENAI_COMPAT_API_KEY=YOUR_KEY
+export OPENAI_COMPAT_MODEL=gpt-5
+npm run dev:api
+```
+
+`OPENAI_COMPAT_API_KEY` اختياري للخوادم المحلية التي لا تتطلب Bearer token.
 
 API:
 
