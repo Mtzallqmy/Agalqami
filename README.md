@@ -2,9 +2,17 @@
 
 **Repository:** `Mtzallqmy/Agalqami`  
 **Android application ID:** `com.alalqami.agent`  
-**Version:** `0.1.1`
+**Version:** `0.1.2`
 
 نسخة أولية لمنصة وكلاء ذكاء اصطناعي تعمل من Android، مستوحاة معماريًا من فكرة AI employee + remote computer، لكن بكود مستقل.
+
+## توافق Android الرسمي
+
+- Android 8.0 Oreo وما فوق (`minSdk = 26`).
+- `arm64-v8a` للهواتف والأجهزة اللوحية الحديثة 64-bit.
+- `x86_64` لمحاكيات Android 64-bit.
+- لا نعتمد `armeabi-v7a` ضمن السياسة الأساسية للمشروع.
+- أي مكتبة Native/NDK تضاف مستقبلًا يجب أن تدعم `arm64-v8a` و`x86_64` وألا ترفع الحد الأدنى عن Android 8 دون قرار صريح.
 
 ## ما يعمل الآن
 
