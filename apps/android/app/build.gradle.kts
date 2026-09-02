@@ -11,8 +11,16 @@ android {
         applicationId = "com.alalqami.agent"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.1"
+        versionCode = 2
+        versionName = "0.1.2"
+
+        // Project compatibility policy:
+        // - Android 8.0+ (API 26+)
+        // - arm64-v8a for physical 64-bit Android devices
+        // - x86_64 for 64-bit Android emulators
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
 
         buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8787\"")
         buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:8787\"")
