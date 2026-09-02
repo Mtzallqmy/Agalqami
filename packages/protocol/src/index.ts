@@ -1,5 +1,21 @@
 export type AgentStatus = "idle" | "running" | "waiting_approval" | "failed";
 
+export type ProviderKind = "mock" | "openai" | "xai" | "openrouter" | "openai-compatible";
+
+export interface ProviderSettingsPublic {
+  provider: ProviderKind;
+  model: string;
+  baseUrl?: string;
+  hasApiKey: boolean;
+}
+
+export interface UpdateProviderSettingsInput {
+  provider: ProviderKind;
+  model?: string;
+  baseUrl?: string;
+  apiKey?: string;
+}
+
 export interface AgentDefinition {
   id: string;
   name: string;

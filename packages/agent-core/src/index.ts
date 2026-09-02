@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentEvent } from "@alalqami/protocol";
+import type { AgentDefinition, AgentEvent, ProviderKind } from "@alalqami/protocol";
 
 export interface ModelRequest {
   instructions: string;
@@ -48,7 +48,7 @@ async function* readSseData(response: Response): AsyncIterable<string> {
 
 export class MockProvider implements ModelProvider {
   async *stream(request: ModelRequest): AsyncIterable<string> {
-    const text = `تم استلام المهمة: ${request.input}\n\nهذه استجابة تجريبية من Alalqami Agent. اختر مزودًا في AI_PROVIDER لتفعيل نموذج حقيقي.`;
+    const text = `تم استلام المهمة: ${request.input}\n\nهذه استجابة تجريبية من Alalqami Agent. اختر مزودًا حقيقيًا من إعدادات التطبيق.`;
     for (const word of text.split(/(\s+)/)) {
       await new Promise((resolve) => setTimeout(resolve, 25));
       yield word;
@@ -56,17 +56,20 @@ export class MockProvider implements ModelProvider {
   }
 }
 
-export class XaiResponsesProvider implements ModelProvider {
-  constructor(
-    private readonly apiKey: string,
-    private readonly baseUrl = "https://api.x.ai/v1",
-  ) {}
+export interface ResponsesApiOptions {
+  apiKey: string;
+  baseUrl: string;
+  providerName: string;
+}
+
+export class ResponsesApiProvider implements ModelProvider {
+  constructor(private readonly options: ResponsesApiOptions) {}
 
   async *stream(request: ModelRequest): AsyncIterable<string> {
-    const response = await fetch(`${trimSlash(this.baseUrl)}/responses`, {
+    const response = await fetch(`${trimSlash(this.options.baseUrl)}/responses`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.options.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -79,20 +82,38 @@ export class XaiResponsesProvider implements ModelProvider {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`xAI request failed (${response.status}): ${body.slice(0, 500)}`);
+      throw new Error(
+        `${this.options.providerName} request failed (${response.status}): ${body.slice(0, 500)}`,
+      );
     }
 
     for await (const payload of readSseData(response)) {
       if (payload === "[DONE]") break;
+
+      let event: { type?: string; delta?: string; error?: { message?: string } };
       try {
-        const event = JSON.parse(payload) as { type?: string; delta?: string };
-        if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
-          yield event.delta;
-        }
+        event = JSON.parse(payload) as typeof event;
       } catch {
-        // Ignore malformed provider events; valid text deltas continue streaming.
+        continue;
+      }
+
+      if (event.error?.message) throw new Error(event.error.message);
+      if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+        yield event.delta;
       }
     }
+  }
+}
+
+export class OpenAIResponsesProvider extends ResponsesApiProvider {
+  constructor(apiKey: string, baseUrl = "https://api.openai.com/v1") {
+    super({ apiKey, baseUrl, providerName: "OpenAI" });
+  }
+}
+
+export class XaiResponsesProvider extends ResponsesApiProvider {
+  constructor(apiKey: string, baseUrl = "https://api.x.ai/v1") {
+    super({ apiKey, baseUrl, providerName: "xAI" });
   }
 }
 
@@ -146,7 +167,6 @@ export class OpenAICompatibleChatProvider implements ModelProvider {
       try {
         event = JSON.parse(payload) as typeof event;
       } catch {
-        // Ignore malformed provider events; valid SSE frames continue streaming.
         continue;
       }
 
@@ -214,21 +234,28 @@ export class AgentRuntime {
   }
 }
 
-export type SupportedProvider = "mock" | "xai" | "openrouter" | "openai-compatible";
+export type SupportedProvider = ProviderKind;
 
 export function normalizedProviderName(env: ProviderEnv): SupportedProvider {
   const configured = env.AI_PROVIDER?.trim().toLowerCase();
+
   if (!configured) {
+    if (env.OPENAI_API_KEY) return "openai";
     if (env.OPENROUTER_API_KEY) return "openrouter";
     if (env.XAI_API_KEY) return "xai";
     if (env.OPENAI_COMPAT_BASE_URL) return "openai-compatible";
     return "mock";
   }
 
-  if (configured === "openai_compatible" || configured === "compatible" || configured === "openai") {
+  if (configured === "openai_compatible" || configured === "compatible") {
     return "openai-compatible";
   }
-  if (configured === "openrouter" || configured === "xai" || configured === "mock") {
+  if (
+    configured === "openai" ||
+    configured === "openrouter" ||
+    configured === "xai" ||
+    configured === "mock"
+  ) {
     return configured;
   }
   throw new Error(`Unsupported AI_PROVIDER: ${configured}`);
@@ -237,6 +264,8 @@ export function normalizedProviderName(env: ProviderEnv): SupportedProvider {
 export function defaultModelFromEnv(env: ProviderEnv): string {
   const provider = normalizedProviderName(env);
   switch (provider) {
+    case "openai":
+      return env.OPENAI_MODEL?.trim() || "gpt-5.6-sol";
     case "xai":
       return env.XAI_MODEL?.trim() || "grok-4.6";
     case "openrouter":
@@ -248,8 +277,81 @@ export function defaultModelFromEnv(env: ProviderEnv): string {
   }
 }
 
+export function providerBaseUrlFromEnv(env: ProviderEnv): string | undefined {
+  switch (normalizedProviderName(env)) {
+    case "openai":
+      return env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1";
+    case "xai":
+      return env.XAI_BASE_URL?.trim() || "https://api.x.ai/v1";
+    case "openrouter":
+      return env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1";
+    case "openai-compatible":
+      return env.OPENAI_COMPAT_BASE_URL?.trim();
+    default:
+      return undefined;
+  }
+}
+
+export function providerHasApiKey(env: ProviderEnv): boolean {
+  switch (normalizedProviderName(env)) {
+    case "openai":
+      return Boolean(env.OPENAI_API_KEY?.trim());
+    case "xai":
+      return Boolean(env.XAI_API_KEY?.trim());
+    case "openrouter":
+      return Boolean(env.OPENROUTER_API_KEY?.trim());
+    case "openai-compatible":
+      return Boolean(env.OPENAI_COMPAT_API_KEY?.trim());
+    default:
+      return false;
+  }
+}
+
+export function applyProviderSettings(
+  env: ProviderEnv,
+  input: { provider: SupportedProvider; model?: string; baseUrl?: string; apiKey?: string },
+): ProviderEnv {
+  const next: ProviderEnv = { ...env, AI_PROVIDER: input.provider };
+  const model = input.model?.trim();
+  const baseUrl = input.baseUrl?.trim();
+  const apiKey = input.apiKey?.trim();
+
+  switch (input.provider) {
+    case "openai":
+      if (model) next.OPENAI_MODEL = model;
+      if (baseUrl) next.OPENAI_BASE_URL = baseUrl;
+      if (apiKey) next.OPENAI_API_KEY = apiKey;
+      break;
+    case "xai":
+      if (model) next.XAI_MODEL = model;
+      if (baseUrl) next.XAI_BASE_URL = baseUrl;
+      if (apiKey) next.XAI_API_KEY = apiKey;
+      break;
+    case "openrouter":
+      if (model) next.OPENROUTER_MODEL = model;
+      if (baseUrl) next.OPENROUTER_BASE_URL = baseUrl;
+      if (apiKey) next.OPENROUTER_API_KEY = apiKey;
+      break;
+    case "openai-compatible":
+      if (model) next.OPENAI_COMPAT_MODEL = model;
+      if (baseUrl) next.OPENAI_COMPAT_BASE_URL = baseUrl;
+      if (apiKey) next.OPENAI_COMPAT_API_KEY = apiKey;
+      break;
+    case "mock":
+      if (model) next.MOCK_MODEL = model;
+      break;
+  }
+
+  return next;
+}
+
 export function createProviderFromEnv(env: ProviderEnv): ModelProvider {
   const provider = normalizedProviderName(env);
+
+  if (provider === "openai") {
+    if (!env.OPENAI_API_KEY) throw new Error("AI_PROVIDER=openai requires OPENAI_API_KEY");
+    return new OpenAIResponsesProvider(env.OPENAI_API_KEY, env.OPENAI_BASE_URL);
+  }
 
   if (provider === "xai") {
     if (!env.XAI_API_KEY) throw new Error("AI_PROVIDER=xai requires XAI_API_KEY");

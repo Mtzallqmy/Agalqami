@@ -1,12 +1,30 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import { AgentRuntime, createProviderFromEnv, defaultModelFromEnv, normalizedProviderName } from "@alalqami/agent-core";
-import type { AgentDefinition, AgentEvent, CreateAgentInput, SendMessageInput } from "@alalqami/protocol";
+import {
+  AgentRuntime,
+  applyProviderSettings,
+  createProviderFromEnv,
+  defaultModelFromEnv,
+  normalizedProviderName,
+  providerBaseUrlFromEnv,
+  providerHasApiKey,
+  type ProviderEnv,
+} from "@alalqami/agent-core";
+import type {
+  AgentDefinition,
+  AgentEvent,
+  CreateAgentInput,
+  ProviderSettingsPublic,
+  SendMessageInput,
+  UpdateProviderSettingsInput,
+} from "@alalqami/protocol";
 
 const port = Number(process.env.PORT ?? 8787);
 const agents = new Map<string, AgentDefinition>();
 const clients = new Set<WebSocket>();
-const runtime = new AgentRuntime(createProviderFromEnv(process.env));
+
+let runtimeEnv: ProviderEnv = { ...process.env };
+let runtime = new AgentRuntime(createProviderFromEnv(runtimeEnv));
 
 const json = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -26,12 +44,43 @@ const broadcast = (event: AgentEvent) => {
   }
 };
 
+const publicProviderSettings = (): ProviderSettingsPublic => ({
+  provider: normalizedProviderName(runtimeEnv),
+  model: defaultModelFromEnv(runtimeEnv),
+  baseUrl: providerBaseUrlFromEnv(runtimeEnv),
+  hasApiKey: providerHasApiKey(runtimeEnv),
+});
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
     if (req.method === "GET" && url.pathname === "/health") {
-      return json(res, 200, { ok: true, service: "alalqami-agent-api" });
+      return json(res, 200, {
+        ok: true,
+        service: "alalqami-agent-api",
+        provider: publicProviderSettings(),
+      });
+    }
+
+    if (req.method === "GET" && url.pathname === "/settings/provider") {
+      return json(res, 200, publicProviderSettings());
+    }
+
+    if (req.method === "PUT" && url.pathname === "/settings/provider") {
+      const input = await readJson<UpdateProviderSettingsInput>(req);
+      if (!input.provider) return json(res, 400, { error: "provider is required" });
+
+      const nextEnv = applyProviderSettings(runtimeEnv, input);
+      const nextRuntime = new AgentRuntime(createProviderFromEnv(nextEnv));
+
+      runtimeEnv = nextEnv;
+      runtime = nextRuntime;
+
+      const model = defaultModelFromEnv(runtimeEnv);
+      for (const agent of agents.values()) agent.model = model;
+
+      return json(res, 200, publicProviderSettings());
     }
 
     if (req.method === "GET" && url.pathname === "/agents") {
@@ -47,7 +96,7 @@ const server = createServer(async (req, res) => {
         id: `agt_${crypto.randomUUID()}`,
         name: input.name.trim(),
         instructions: input.instructions.trim(),
-        model: input.model?.trim() || defaultModelFromEnv(process.env),
+        model: input.model?.trim() || defaultModelFromEnv(runtimeEnv),
         status: "idle",
         createdAt: new Date().toISOString(),
       };
@@ -66,6 +115,8 @@ const server = createServer(async (req, res) => {
 
       const runId = `run_${crypto.randomUUID()}`;
       agent.status = "running";
+      agent.model = defaultModelFromEnv(runtimeEnv);
+
       void runtime.run(agent, runId, input.message.trim(), (event) => {
         broadcast(event);
         if (event.type === "agent.completed") agent.status = "idle";
@@ -95,5 +146,5 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(port, "0.0.0.0", () => {
   console.log(`Alalqami Agent API listening on http://0.0.0.0:${port}`);
-  console.log(`Provider: ${normalizedProviderName(process.env)}`);
+  console.log(`Provider: ${normalizedProviderName(runtimeEnv)}`);
 });
